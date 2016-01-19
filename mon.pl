@@ -14,6 +14,9 @@ use YAML qw( LoadFile );
 
 my $CONFIG = LoadFile( "mon.yaml" );
 
+$CONFIG->{send_deadline} //= 5;
+$CONFIG->{recv_deadline} //= 20;
+
 my $loop = IO::Async::Loop->new;
 
 my $matrix = Net::Async::Matrix->new(
@@ -60,18 +63,43 @@ my $txn = $txns{$txn_id} = Txn(
 
 my $start = [ gettimeofday ];
 
-# TODO: deadline, cancellation on failure, etc...
+# TODO: cancellation on failure, etc...
 
 Future->needs_all(
-   $room->send_message(
-      type => "m.text",
-      body => "Ping at " . time(),
-      txn_id => $txn_id,
-   )->on_done( sub {
-      say "Sent in " . tv_interval( $start );
-   }),
+   # Send RTT
+   Future->needs_any(
+      $room->send_message(
+         type => "m.text",
+         body => "Ping at " . time(),
+         txn_id => $txn_id,
+      )->then( sub {
+         my $rtt = tv_interval( $start );
+         say "Sent in $rtt";
+         Future->done( $rtt );
+      }),
 
-   $recv_f->on_done( sub {
-      say "Received in " . tv_interval( $start );
-   }),
-)->get;
+      $loop->delay_future( after => $CONFIG->{send_deadline} )->then( sub {
+         say "Send deadline exceeded";
+         Future->done( undef );
+      }),
+   ),
+
+   # Recv RTT
+   Future->needs_any(
+      $recv_f->then( sub {
+         my $rtt = tv_interval( $start );
+         say "Received in $rtt";
+         Future->done( $rtt );
+      }),
+
+      $loop->delay_future( after => $CONFIG->{recv_deadline} )->then( sub {
+         say "Receive deadline exceeded";
+         Future->done( undef );
+      }),
+   ),
+)->then( sub {
+   my ( $send_rtt, $recv_rtt ) = @_;
+   say "TODO: roll RTTs into moving average (send=$send_rtt recv=$recv_rtt)";
+
+   Future->done;
+})->get;
