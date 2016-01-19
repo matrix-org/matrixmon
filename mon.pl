@@ -12,7 +12,7 @@ use Net::Async::Matrix;
 
 use HTTP::Response;
 
-use List::Util 1.29 qw( pairmap );
+use List::Util 1.29 qw( pairmap max sum );
 use Struct::Dumb;
 use Time::HiRes qw( time gettimeofday tv_interval );
 use YAML qw( LoadFile );
@@ -25,6 +25,13 @@ $CONFIG->{recv_deadline} //= 20;
 $CONFIG->{interval} //= 30;
 
 $CONFIG->{metrics_port} //= 8090;
+
+$CONFIG->{horizon} //= "10m";
+
+my $HORIZON = $CONFIG->{horizon};
+
+# convert units
+$HORIZON =~ m/^(\d+)m$/ and $HORIZON = $1 * 60;
 
 my $loop = IO::Async::Loop->new;
 
@@ -111,13 +118,10 @@ sub ping
             body => "Ping at " . time(),
             txn_id => $txn_id,
          )->then( sub {
-            my $rtt = tv_interval( $start );
-            say "Sent in $rtt";
-            Future->done( $rtt );
+            Future->done( tv_interval( $start ) );
          }),
 
          $loop->delay_future( after => $CONFIG->{send_deadline} )->then( sub {
-            say "Send deadline exceeded";
             Future->done( undef );
          }),
       ),
@@ -125,22 +129,27 @@ sub ping
       # Recv RTT
       Future->needs_any(
          $recv_f->then( sub {
-            my $rtt = tv_interval( $start );
-            say "Received in $rtt";
-            Future->done( $rtt );
+            Future->done( tv_interval( $start ) );
          }),
 
          $loop->delay_future( after => $CONFIG->{recv_deadline} )->then( sub {
-            say "Receive deadline exceeded";
             Future->done( undef );
          }),
       ),
    )->then( sub {
       my ( $send_rtt, $recv_rtt ) = @_;
 
+      say +( defined $send_rtt ? "Sent in $send_rtt" : "Send timed out" ),
+         "; ",
+           ( defined $recv_rtt ? "received in $recv_rtt" : "receive timed out" );
+
       $last_send_rtt = $send_rtt;
       $last_recv_rtt = $recv_rtt;
-      say "TODO: roll RTTs into moving average (send=$send_rtt recv=$recv_rtt)";
+
+      push_stats(
+         send_rtt => $send_rtt,
+         recv_rtt => $recv_rtt,
+      );
 
       Future->done;
    })->on_ready( sub {
@@ -148,11 +157,43 @@ sub ping
    });
 }
 
+struct Stat => [qw( timestamp points )];
+my @stats;
+
+sub push_stats
+{
+   my %stats = @_;
+
+   my $now = time();
+
+   push @stats, Stat( $now, \%stats );
+
+   # Expire old ones
+   shift @stats while @stats and $stats[0]->timestamp < ( $now - $HORIZON );
+}
+
+# This one isn't in List::Util but easily constructed
+sub avg { return undef unless @_; max( @_ ) / scalar @_ }
+
 sub gen_stats
 {
+   my $horizon = $CONFIG->{horizon};
+
+   my %values = map {
+      my $field = $_;
+      $field => [ map {
+         my $v = $_->points->{$field};
+         defined $v ? ( $v ) : ()
+      } @stats ];
+   } qw( send_rtt recv_rtt );
+
    return
       "last_send_rtt", $last_send_rtt,
-      "last_recv_rtt", $last_recv_rtt;
+      "last_recv_rtt", $last_recv_rtt,
+
+      ( map { +"${_}_${horizon}_max", max( @{ $values{$_} } ) } qw( send_rtt recv_rtt ) ),
+
+      ( map { +"${_}_${horizon}_avg", avg( @{ $values{$_} } ) } qw( send_rtt recv_rtt ) ),
 }
 
 $loop->add( IO::Async::Timer::Periodic->new(
