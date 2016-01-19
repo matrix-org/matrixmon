@@ -5,6 +5,7 @@ use warnings;
 use 5.010;
 
 use IO::Async::Loop;
+use IO::Async::Timer::Periodic;
 
 use Net::Async::Matrix;
 
@@ -16,6 +17,8 @@ my $CONFIG = LoadFile( "mon.yaml" );
 
 $CONFIG->{send_deadline} //= 5;
 $CONFIG->{recv_deadline} //= 20;
+
+$CONFIG->{interval} //= 30;
 
 my $loop = IO::Async::Loop->new;
 
@@ -41,10 +44,9 @@ say "Got room";
 
 my $next_txn_id;
 
-# TODO: Work out how to stop this growing without bounds...
 my %txns;
 
-struct Txn => [qw( recv_f )];
+struct Txn => [qw( recv_f f )];
 
 $room->configure(
    on_message => sub {
@@ -55,51 +57,66 @@ $room->configure(
    },
 );
 
-my $txn_id = $next_txn_id++;
+sub ping
+{
+   my $txn_id = $next_txn_id++;
 
-my $txn = $txns{$txn_id} = Txn(
-   my $recv_f = Future->new,
-);
+   my $txn = $txns{$txn_id} = Txn(
+      my $recv_f = Future->new,
+      undef,
+   );
 
-my $start = [ gettimeofday ];
+   my $start = [ gettimeofday ];
 
-# TODO: cancellation on failure, etc...
+   # TODO: cancellation on failure, etc...
 
-Future->needs_all(
-   # Send RTT
-   Future->needs_any(
-      $room->send_message(
-         type => "m.text",
-         body => "Ping at " . time(),
-         txn_id => $txn_id,
-      )->then( sub {
-         my $rtt = tv_interval( $start );
-         say "Sent in $rtt";
-         Future->done( $rtt );
-      }),
+   $txn->f = Future->needs_all(
+      # Send RTT
+      Future->needs_any(
+         $room->send_message(
+            type => "m.text",
+            body => "Ping at " . time(),
+            txn_id => $txn_id,
+         )->then( sub {
+            my $rtt = tv_interval( $start );
+            say "Sent in $rtt";
+            Future->done( $rtt );
+         }),
 
-      $loop->delay_future( after => $CONFIG->{send_deadline} )->then( sub {
-         say "Send deadline exceeded";
-         Future->done( undef );
-      }),
-   ),
+         $loop->delay_future( after => $CONFIG->{send_deadline} )->then( sub {
+            say "Send deadline exceeded";
+            Future->done( undef );
+         }),
+      ),
 
-   # Recv RTT
-   Future->needs_any(
-      $recv_f->then( sub {
-         my $rtt = tv_interval( $start );
-         say "Received in $rtt";
-         Future->done( $rtt );
-      }),
+      # Recv RTT
+      Future->needs_any(
+         $recv_f->then( sub {
+            my $rtt = tv_interval( $start );
+            say "Received in $rtt";
+            Future->done( $rtt );
+         }),
 
-      $loop->delay_future( after => $CONFIG->{recv_deadline} )->then( sub {
-         say "Receive deadline exceeded";
-         Future->done( undef );
-      }),
-   ),
-)->then( sub {
-   my ( $send_rtt, $recv_rtt ) = @_;
-   say "TODO: roll RTTs into moving average (send=$send_rtt recv=$recv_rtt)";
+         $loop->delay_future( after => $CONFIG->{recv_deadline} )->then( sub {
+            say "Receive deadline exceeded";
+            Future->done( undef );
+         }),
+      ),
+   )->then( sub {
+      my ( $send_rtt, $recv_rtt ) = @_;
+      say "TODO: roll RTTs into moving average (send=$send_rtt recv=$recv_rtt)";
 
-   Future->done;
-})->get;
+      Future->done;
+   })->on_ready( sub {
+      delete $txns{$txn_id};
+   });
+}
+
+$loop->add( IO::Async::Timer::Periodic->new(
+   interval => $CONFIG->{interval},
+   first_interval => 0,
+
+   on_tick => sub { ping() },
+)->start );
+
+$loop->run;
