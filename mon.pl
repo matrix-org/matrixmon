@@ -97,6 +97,9 @@ $room->configure(
 my $last_send_rtt;
 my $last_recv_rtt;
 
+my $send_failures = 0;
+my $recv_failures = 0;
+
 sub ping
 {
    my $txn_id = $next_txn_id++;
@@ -122,6 +125,7 @@ sub ping
          }),
 
          $loop->delay_future( after => $CONFIG->{send_deadline} )->then( sub {
+            $send_failures++;
             Future->done( undef );
          }),
       ),
@@ -133,6 +137,7 @@ sub ping
          }),
 
          $loop->delay_future( after => $CONFIG->{recv_deadline} )->then( sub {
+            $recv_failures++;
             Future->done( undef );
          }),
       ),
@@ -190,6 +195,9 @@ sub gen_stats
    return
       "last_send_rtt", $last_send_rtt,
       "last_recv_rtt", $last_recv_rtt,
+
+      "send_failures", $send_failures,
+      "recv_failures", $recv_failures,
 
       ( map { +"${_}_${horizon}_max", max( @{ $values{$_} } ) } qw( send_rtt recv_rtt ) ),
 
