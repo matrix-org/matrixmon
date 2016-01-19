@@ -7,8 +7,12 @@ use 5.010;
 use IO::Async::Loop;
 use IO::Async::Timer::Periodic;
 
+use Net::Async::HTTP::Server;
 use Net::Async::Matrix;
 
+use HTTP::Response;
+
+use List::Util 1.29 qw( pairmap );
 use Struct::Dumb;
 use Time::HiRes qw( time gettimeofday tv_interval );
 use YAML qw( LoadFile );
@@ -20,12 +24,38 @@ $CONFIG->{recv_deadline} //= 20;
 
 $CONFIG->{interval} //= 30;
 
+$CONFIG->{metrics_port} //= 8090;
+
 my $loop = IO::Async::Loop->new;
 
 my $matrix = Net::Async::Matrix->new(
    server => $CONFIG->{homeserver},
 );
 $loop->add( $matrix );
+
+$loop->add( my $server = Net::Async::HTTP::Server->new(
+   on_request => sub {
+      my ( undef, $req ) = @_;
+
+      my $response = HTTP::Response->new( 200 );
+
+      $response->add_content(
+         join "\r\n", pairmap { "$a $b" } gen_stats()
+      );
+
+      $response->content_type( "text/plain" );
+      $response->content_length( length $response->content );
+
+      $req->respond( $response );
+   },
+));
+
+$server->listen(
+   socktype => 'stream',
+   service => $CONFIG->{metrics_port}
+)->get;
+
+say "Listening for metrics on http://[::0]:" . $server->read_handle->sockport;
 
 say "Logging in to $CONFIG->{homeserver} as $CONFIG->{user_id}...";
 
@@ -56,6 +86,9 @@ $room->configure(
       $txn->recv_f->done( $event );
    },
 );
+
+my $last_send_rtt;
+my $last_recv_rtt;
 
 sub ping
 {
@@ -104,12 +137,22 @@ sub ping
       ),
    )->then( sub {
       my ( $send_rtt, $recv_rtt ) = @_;
+
+      $last_send_rtt = $send_rtt;
+      $last_recv_rtt = $recv_rtt;
       say "TODO: roll RTTs into moving average (send=$send_rtt recv=$recv_rtt)";
 
       Future->done;
    })->on_ready( sub {
       delete $txns{$txn_id};
    });
+}
+
+sub gen_stats
+{
+   return
+      "last_send_rtt", $last_send_rtt,
+      "last_recv_rtt", $last_recv_rtt;
 }
 
 $loop->add( IO::Async::Timer::Periodic->new(
