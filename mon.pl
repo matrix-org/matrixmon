@@ -168,6 +168,9 @@ sub ping
 struct Stat => [qw( timestamp points )];
 my @stats;
 
+my %totals;
+my %counts;
+
 sub push_stats
 {
    my %stats = @_;
@@ -178,10 +181,14 @@ sub push_stats
 
    # Expire old ones
    shift @stats while @stats and $stats[0]->timestamp < ( $now - $HORIZON );
-}
 
-# This one isn't in List::Util but easily constructed
-sub avg { return undef unless @_; max( @_ ) / scalar @_ }
+   foreach my $name ( keys %stats ) {
+      next unless defined $stats{$name};
+
+      $totals{$name} += $stats{$name};
+      $counts{$name} += 1;
+   }
+}
 
 sub gen_stats
 {
@@ -204,7 +211,8 @@ sub gen_stats
 
       ( map { +"${_}_${horizon}_max", max( @{ $values{$_} } ) } qw( send_rtt recv_rtt ) ),
 
-      ( map { +"${_}_${horizon}_avg", avg( @{ $values{$_} } ) } qw( send_rtt recv_rtt ) ),
+      ( map { +"${_}_total", $totals{$_} } keys %totals ),
+      ( map { +"${_}_count", $counts{$_} } keys %counts ),
 }
 
 $loop->add( IO::Async::Timer::Periodic->new(
