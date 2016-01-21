@@ -47,7 +47,7 @@ $loop->add( my $server = Net::Async::HTTP::Server->new(
       my $response = HTTP::Response->new( 200 );
 
       $response->add_content(
-         join "\r\n", pairmap { "$a $b" } gen_stats()
+         join "\n", pairmap { "$a $b" } gen_stats()
       );
 
       $response->content_type( "text/plain" );
