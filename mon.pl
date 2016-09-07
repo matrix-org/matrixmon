@@ -97,6 +97,8 @@ $room->configure(
    },
 );
 
+my $attempts = 0;
+
 my $last_send_rtt;
 my $last_recv_rtt;
 
@@ -151,6 +153,7 @@ sub ping
          "; ",
            ( defined $recv_rtt ? "received in $recv_rtt" : "receive timed out" );
 
+      $attempts++;
       $last_send_rtt = $send_rtt;
       $last_recv_rtt = $recv_rtt;
 
@@ -206,6 +209,7 @@ sub gen_stats
       "last_send_rtt", $last_send_rtt,
       "last_recv_rtt", $last_recv_rtt,
 
+      "attempts",      $attempts,
       "send_failures", $send_failures,
       "recv_failures", $recv_failures,
 
