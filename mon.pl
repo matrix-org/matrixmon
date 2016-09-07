@@ -30,6 +30,8 @@ $CONFIG->{horizon} //= "10m";
 
 my $HORIZON = $CONFIG->{horizon};
 
+my $BUCKETS = $CONFIG->{buckets};
+
 # convert units
 $HORIZON =~ m/^(\d+)m$/ and $HORIZON = $1 * 60;
 
@@ -171,8 +173,9 @@ sub ping
 struct Stat => [qw( timestamp points )];
 my @stats;
 
-my %totals;
-my %counts;
+my %totals; # {$name} => $total
+my %counts; # {$name} => $count
+my %bucketed_counts; # {#name}{$bucket} => $count
 
 sub push_stats
 {
@@ -187,10 +190,33 @@ sub push_stats
 
    foreach my $name ( keys %stats ) {
       next unless defined $stats{$name};
+      my $value = $stats{$name};
 
-      $totals{$name} += $stats{$name};
+      $totals{$name} += $value;
       $counts{$name} += 1;
+
+      # Increment /all/ of the buckets whose bounds are at least the value
+      foreach my $bucket ( @$BUCKETS ) {
+         # Initialise the counters to zero so the first time we report we'll
+         # create all the buckets, even if they're zero. This is politer on
+         # prometheus
+         $bucketed_counts{$name}{$bucket} //= 0;
+
+         $bucketed_counts{$name}{$bucket} += 1 if $bucket >= $value;
+      }
    }
+}
+
+sub nsort { sort { $a <=> $b } @_ }
+
+sub _gen_bucket_stats
+{
+   my ( $name ) = @_;
+   my $buckets = $bucketed_counts{$name};
+
+   return map {
+      +qq(${name}_within{le="$_"}), $buckets->{$_}
+   } nsort keys %$buckets;
 }
 
 sub gen_stats
@@ -217,6 +243,7 @@ sub gen_stats
 
       ( map { +"${_}_total", $totals{$_} } keys %totals ),
       ( map { +"${_}_count", $counts{$_} } keys %counts ),
+      ( map { _gen_bucket_stats( $_ ) } keys %bucketed_counts ),
 }
 
 $loop->add( IO::Async::Timer::Periodic->new(
