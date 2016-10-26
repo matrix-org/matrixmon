@@ -101,9 +101,6 @@ $room->configure(
 
 my $attempts = 0;
 
-my $last_send_rtt;
-my $last_recv_rtt;
-
 my $send_failures = 0;
 my $recv_failures = 0;
 
@@ -156,8 +153,6 @@ sub ping
            ( defined $recv_rtt ? "received in $recv_rtt" : "receive timed out" );
 
       $attempts++;
-      $last_send_rtt = $send_rtt;
-      $last_recv_rtt = $recv_rtt;
 
       push_stats(
          send_rtt => $send_rtt,
@@ -232,9 +227,6 @@ sub gen_stats
    } qw( send_rtt recv_rtt );
 
    return
-      "last_send_rtt", $last_send_rtt,
-      "last_recv_rtt", $last_recv_rtt,
-
       "attempts",      $attempts,
       "send_failures", $send_failures,
       "recv_failures", $recv_failures,
