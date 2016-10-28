@@ -183,8 +183,8 @@ sub ping
 
       $attempts->inc;
 
-      $send_rtt_histogram->observe( $send_rtt );
-      $recv_rtt_histogram->observe( $recv_rtt );
+      $send_rtt_histogram->observe( $send_rtt ) if defined $send_rtt;
+      $recv_rtt_histogram->observe( $recv_rtt ) if defined $recv_rtt;
 
       my $now = time();
 
