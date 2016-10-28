@@ -7,8 +7,10 @@ use 5.010;
 use IO::Async::Loop;
 use IO::Async::Timer::Periodic;
 
-use Net::Async::HTTP::Server;
+use Net::Async::HTTP::Server::PSGI;
 use Net::Async::Matrix;
+
+use Net::Prometheus;
 
 use HTTP::Response;
 
@@ -35,6 +37,9 @@ my $BUCKETS = $CONFIG->{buckets};
 # convert units
 $HORIZON =~ m/^(\d+)m$/ and $HORIZON = $1 * 60;
 
+struct Stat => [qw( timestamp points )];
+my @stats;
+
 my $loop = IO::Async::Loop->new;
 
 my $matrix = Net::Async::Matrix->new(
@@ -42,24 +47,53 @@ my $matrix = Net::Async::Matrix->new(
 );
 $loop->add( $matrix );
 
-$loop->add( my $server = Net::Async::HTTP::Server->new(
-   on_request => sub {
-      my ( undef, $req ) = @_;
+my $prometheus = Net::Prometheus->new;
 
-      my $response = HTTP::Response->new( 200 );
+# Register the metrics
 
-      $response->add_content(
-         join "", pairmap {
-            my $value = $b // "Nan";
-            "$a $value\n"
-         } gen_stats()
-      );
+my $group = $prometheus->new_metricgroup( namespace => "matrixmon" );
 
-      $response->content_type( "text/plain" );
-      $response->content_length( length $response->content );
+my $attempts = $group->new_counter(
+   name => "attempts_total",
+   help => "Count of roundtrip attempts made",
+);
+my $send_failures = $group->new_counter(
+   name => "send_failures_total",
+   help => "Count of send attempts that never succeed",
+);
+my $recv_failures = $group->new_counter(
+   name => "recv_failures_total",
+   help => "Count of receive attempts that never succeed",
+);
 
-      $req->respond( $response );
-   },
+my $send_rtt_histogram = $group->new_histogram(
+   name => "send_rtt_seconds",
+   help => "Distribution of send round-trip time",
+   buckets => $BUCKETS,
+);
+my $recv_rtt_histogram = $group->new_histogram(
+   name => "recv_rtt_seconds",
+   help => "Distribution of receive round-trip time",
+   buckets => $BUCKETS,
+);
+
+my $horizon = $CONFIG->{horizon};
+
+$group->new_gauge(
+   name => "send_rtt_seconds_max$horizon",
+   help => "Maximum send round-trip time observed recently",
+)->set_function( sub {
+   max( map { $_->points->{send_rtt} } @stats )
+});
+$group->new_gauge(
+   name => "recv_rtt_seconds_max$horizon",
+   help => "Maximum receive round-trip time observed recently",
+)->set_function( sub {
+   max( map { $_->points->{recv_rtt} } @stats )
+});
+
+$loop->add( my $server = Net::Async::HTTP::Server::PSGI->new(
+   app => $prometheus->psgi_app,
 ));
 
 $server->listen(
@@ -99,11 +133,6 @@ $room->configure(
    },
 );
 
-my $attempts = 0;
-
-my $send_failures = 0;
-my $recv_failures = 0;
-
 sub ping
 {
    my $txn_id = $next_txn_id++;
@@ -129,7 +158,7 @@ sub ping
          }),
 
          $loop->delay_future( after => $CONFIG->{send_deadline} )->then( sub {
-            $send_failures++;
+            $send_failures->inc;
             Future->done( undef );
          }),
       ),
@@ -141,7 +170,7 @@ sub ping
          }),
 
          $loop->delay_future( after => $CONFIG->{recv_deadline} )->then( sub {
-            $recv_failures++;
+            $recv_failures->inc;
             Future->done( undef );
          }),
       ),
@@ -152,90 +181,25 @@ sub ping
          "; ",
            ( defined $recv_rtt ? "received in $recv_rtt" : "receive timed out" );
 
-      $attempts++;
+      $attempts->inc;
 
-      push_stats(
+      $send_rtt_histogram->observe( $send_rtt );
+      $recv_rtt_histogram->observe( $recv_rtt );
+
+      my $now = time();
+
+      push @stats, Stat( $now, {
          send_rtt => $send_rtt,
          recv_rtt => $recv_rtt,
-      );
+      });
+
+      # Expire old ones
+      shift @stats while @stats and $stats[0]->timestamp < ( $now - $HORIZON );
 
       Future->done;
    })->on_ready( sub {
       delete $txns{$txn_id};
    });
-}
-
-struct Stat => [qw( timestamp points )];
-my @stats;
-
-my %totals; # {$name} => $total
-my %counts; # {$name} => $count
-my %bucketed_counts; # {#name}{$bucket} => $count
-
-sub push_stats
-{
-   my %stats = @_;
-
-   my $now = time();
-
-   push @stats, Stat( $now, \%stats );
-
-   # Expire old ones
-   shift @stats while @stats and $stats[0]->timestamp < ( $now - $HORIZON );
-
-   foreach my $name ( keys %stats ) {
-      next unless defined $stats{$name};
-      my $value = $stats{$name};
-
-      $totals{$name} += $value;
-      $counts{$name} += 1;
-
-      # Increment /all/ of the buckets whose bounds are at least the value
-      foreach my $bucket ( @$BUCKETS ) {
-         # Initialise the counters to zero so the first time we report we'll
-         # create all the buckets, even if they're zero. This is politer on
-         # prometheus
-         $bucketed_counts{$name}{$bucket} //= 0;
-
-         $bucketed_counts{$name}{$bucket} += 1 if $bucket >= $value;
-      }
-   }
-}
-
-sub nsort { sort { $a <=> $b } @_ }
-
-sub _gen_bucket_stats
-{
-   my ( $name ) = @_;
-   my $buckets = $bucketed_counts{$name};
-
-   return map {
-      +qq(${name}_within{le="$_"}), $buckets->{$_}
-   } nsort keys %$buckets;
-}
-
-sub gen_stats
-{
-   my $horizon = $CONFIG->{horizon};
-
-   my %values = map {
-      my $field = $_;
-      $field => [ map {
-         my $v = $_->points->{$field};
-         defined $v ? ( $v ) : ()
-      } @stats ];
-   } qw( send_rtt recv_rtt );
-
-   return
-      "attempts",      $attempts,
-      "send_failures", $send_failures,
-      "recv_failures", $recv_failures,
-
-      ( map { +"${_}_${horizon}_max", max( @{ $values{$_} } ) } qw( send_rtt recv_rtt ) ),
-
-      ( map { +"${_}_total", $totals{$_} } keys %totals ),
-      ( map { +"${_}_count", $counts{$_} } keys %counts ),
-      ( map { _gen_bucket_stats( $_ ) } keys %bucketed_counts ),
 }
 
 $loop->add( IO::Async::Timer::Periodic->new(
