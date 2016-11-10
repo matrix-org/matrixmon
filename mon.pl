@@ -83,13 +83,13 @@ $group->new_gauge(
    name => "send_rtt_seconds_max$horizon",
    help => "Maximum send round-trip time observed recently",
 )->set_function( sub {
-   max( map { $_->points->{send_rtt} } @stats )
+   max( grep { defined } map { $_->points->{send_rtt} } @stats ) // "Nan"
 });
 $group->new_gauge(
    name => "recv_rtt_seconds_max$horizon",
    help => "Maximum receive round-trip time observed recently",
 )->set_function( sub {
-   max( map { $_->points->{recv_rtt} } @stats )
+   max( grep { defined } map { $_->points->{recv_rtt} } @stats ) // "Nan"
 });
 
 $loop->add( my $server = Net::Async::HTTP::Server::PSGI->new(
