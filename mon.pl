@@ -47,6 +47,21 @@ my $matrix = Net::Async::Matrix->new(
 );
 $loop->add( $matrix );
 
+my %MODES = (
+   normal => {
+      interval      => $CONFIG->{interval},
+      send_deadline => $CONFIG->{send_deadline},
+      recv_deadline => $CONFIG->{recv_deadline},
+   },
+   slow => {
+      interval      => 300,
+      send_deadline => 270,
+      recv_deadline => 270,
+   },
+);
+my $curmode = "normal";
+my $MODE = $MODES{$curmode};
+
 my $prometheus = Net::Prometheus->new;
 
 # Register the metrics
@@ -133,6 +148,9 @@ $room->configure(
    },
 );
 
+my $failcounts = 0;
+my $okcounts = 0;
+
 sub ping
 {
    my $txn_id = $next_txn_id++;
@@ -157,7 +175,7 @@ sub ping
             Future->done( tv_interval( $start ) );
          }),
 
-         $loop->delay_future( after => $CONFIG->{send_deadline} )->then( sub {
+         $loop->delay_future( after => $MODE->{send_deadline} )->then( sub {
             $send_failures->inc;
             Future->done( undef );
          }),
@@ -169,7 +187,7 @@ sub ping
             Future->done( tv_interval( $start ) );
          }),
 
-         $loop->delay_future( after => $CONFIG->{recv_deadline} )->then( sub {
+         $loop->delay_future( after => $MODE->{recv_deadline} )->then( sub {
             $recv_failures->inc;
             Future->done( undef );
          }),
@@ -196,17 +214,43 @@ sub ping
       # Expire old ones
       shift @stats while @stats and $stats[0]->timestamp < ( $now - $HORIZON );
 
+      # Consider mode swapping
+      if( defined $send_rtt and defined $recv_rtt ) {
+          $okcounts++;
+          if ( $curmode eq "slow" and $okcounts > 5 ) {
+              switch_mode( "normal" );
+          }
+      }
+      else {
+          $failcounts++;
+          if( $curmode eq "normal" and $failcounts > 5 ) {
+              switch_mode( "slow" );
+          }
+      }
+
       Future->done;
    })->on_ready( sub {
       delete $txns{$txn_id};
    });
 }
 
-$loop->add( IO::Async::Timer::Periodic->new(
-   interval => $CONFIG->{interval},
+$loop->add( my $main_timer = IO::Async::Timer::Periodic->new(
+   interval => $MODE->{interval},
    first_interval => 0,
 
    on_tick => sub { ping() },
 )->start );
 
 $loop->run;
+
+sub switch_mode
+{
+   my ( $mode ) = @_;
+
+   say "Switching to $mode mode";
+
+   $curmode = $mode;
+   $MODE = $MODES{$mode};
+
+   $main_timer->configure( interval => $MODE->{interval} );
+}
