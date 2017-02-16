@@ -44,6 +44,11 @@ my $loop = IO::Async::Loop->new;
 
 my $matrix = Net::Async::Matrix->new(
    server => $CONFIG->{homeserver},
+   # Just warn so errors don't become fatal to the process
+   on_error => sub {
+      my ( undef, $message ) = @_;
+      warn "NaMatrix failure: $message\n";
+   },
 );
 $loop->add( $matrix );
 
