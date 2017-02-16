@@ -15,6 +15,7 @@ use Net::Prometheus;
 use HTTP::Response;
 
 use List::Util 1.29 qw( pairmap max sum );
+use POSIX qw( strftime );
 use Struct::Dumb;
 use Time::HiRes qw( time gettimeofday tv_interval );
 use YAML qw( LoadFile );
@@ -29,6 +30,15 @@ $CONFIG->{interval} //= 30;
 $CONFIG->{metrics_port} //= 8090;
 
 $CONFIG->{horizon} //= "10m";
+
+$CONFIG->{timestamp} //= "[%Y/%m/%d %H:%M:%S]";
+
+# Prefix a timestamp on warnings; useful for logging
+my $oldwarn = $SIG{__WARN__};
+$SIG{__WARN__} = sub {
+   local $SIG{__WARN__} = $oldwarn;
+   warn join " ", strftime( $CONFIG->{timestamp}, localtime ), @_;
+};
 
 my $HORIZON = $CONFIG->{horizon};
 
@@ -106,22 +116,22 @@ $server->listen(
    service => $CONFIG->{metrics_port}
 )->get;
 
-say "Listening for metrics on http://[::0]:" . $server->read_handle->sockport;
+warn "Listening for metrics on http://[::0]:" . $server->read_handle->sockport . "\n";
 
-say "Logging in to $CONFIG->{homeserver} as $CONFIG->{user_id}...";
+warn "Logging in to $CONFIG->{homeserver} as $CONFIG->{user_id}...\n";
 
 $matrix->login(
    user_id  => $CONFIG->{user_id},
    password => $CONFIG->{password},
 )->get;
 
-say "Logged in; fetching room...";
+warn "Logged in; fetching room...\n";
 
 my $room = $matrix->start
    ->then( sub { $matrix->join_room( $CONFIG->{room_id} ) } )
    ->get;
 
-say "Got room";
+warn "Got room\n";
 
 my $next_txn_id;
 
@@ -182,9 +192,10 @@ sub ping
    )->then( sub {
       my ( $send_rtt, $recv_rtt ) = @_;
 
-      say +( defined $send_rtt ? "Sent in $send_rtt" : "Send timed out" ),
+      warn +( defined $send_rtt ? "Sent in $send_rtt" : "Send timed out" ),
          "; ",
-           ( defined $recv_rtt ? "received in $recv_rtt" : "receive timed out" );
+           ( defined $recv_rtt ? "received in $recv_rtt" : "receive timed out" ),
+           "\n";
 
       $attempts->inc;
 
