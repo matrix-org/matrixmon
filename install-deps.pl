@@ -48,4 +48,4 @@ sub requires
 
 }
 
-do "cpanfile";
+do "./cpanfile";
