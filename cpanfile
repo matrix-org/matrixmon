@@ -2,6 +2,7 @@
 
 requires 'HTTP::Response';
 requires 'IO::Async::Loop';
+requires 'IO::Async::SSL';
 requires 'List::Util', '>= 1.29';
 requires 'Net::Async::HTTP::Server';
 requires 'Net::Async::Matrix';
