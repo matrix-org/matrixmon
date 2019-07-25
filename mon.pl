@@ -54,6 +54,7 @@ my $loop = IO::Async::Loop->new;
 
 my $matrix = Net::Async::Matrix->new(
    server => $CONFIG->{homeserver},
+   SSL => $CONFIG->{ssl},
    # Just warn so errors don't become fatal to the process
    on_error => sub {
       my ( undef, $message ) = @_;
