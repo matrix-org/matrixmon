@@ -1,0 +1,26 @@
+# Probe user login details
+user_id:    "@matrixmon:domain.tld"
+password:   "verysecretpassword"
+homeserver: "domain.tld"
+# Set this to 1 to use HTTPS connections, to 0 to use HTTP connections
+ssl: 1
+
+room_id:    "!qwerty:domain.tld"
+
+# Serve /metrics on this port
+metrics_port: "9091"
+
+horizon: 1m
+
+send_deadline: 10
+
+buckets:
+    - 0.05
+    - 0.1
+    - 0.2
+    - 0.5
+    - 1
+    - 2
+    - 5
+    - 10
+
