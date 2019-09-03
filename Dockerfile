@@ -1,6 +1,6 @@
-FROM ubuntu:18.04
+FROM perl:5
 
-RUN apt update && apt install -y perl cpanminus build-essential libssl-dev zlib1g-dev openssl
+RUN apt update && apt install -y build-essential libssl-dev zlib1g-dev openssl
 
 RUN groupadd -r matrixmon && useradd --no-log-init -m -g matrixmon matrixmon
 
