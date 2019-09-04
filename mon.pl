@@ -20,7 +20,13 @@ use Struct::Dumb;
 use Time::HiRes qw( time gettimeofday tv_interval );
 use YAML qw( LoadFile );
 
-my $CONFIG = LoadFile( "mon.yaml" );
+my $CONFIG;
+
+if (defined $ENV{'MATRIXMON_CONFIG_PATH'}) {
+  $CONFIG = LoadFile( $ENV{'MATRIXMON_CONFIG_PATH'} );
+} else {
+  $CONFIG = LoadFile( "mon.yaml" );
+}
 
 $CONFIG->{send_deadline} //= 5;
 $CONFIG->{recv_deadline} //= 20;

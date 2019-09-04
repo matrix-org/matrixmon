@@ -14,6 +14,9 @@ Edit `mon.yaml` with the correct details regarding your homeserver, monitor user
 
 Optionally edit the port and other values, if needed.
 
+By default, Matrixmon expects the config file to be found in the same path where it runs. A custom config file 
+location (full path to file including file name) can be set with the environment variable `MATRIXMON_CONFIG_PATH`. 
+
 ### Using Docker
 
 ```bash
