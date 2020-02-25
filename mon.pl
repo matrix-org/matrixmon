@@ -127,10 +127,19 @@ warn "Listening for metrics on http://[::0]:" . $server->read_handle->sockport .
 
 warn "Logging in to $CONFIG->{homeserver} as $CONFIG->{user_id}...\n";
 
-$matrix->login(
-   user_id  => $CONFIG->{user_id},
-   password => $CONFIG->{password},
-)->get;
+my %login_details;
+if (defined $CONFIG->{password}) {
+  warn "Using password to do the login...\n";
+  %login_details = (
+    'user_id' => $CONFIG->{user_id}, 'password' => $CONFIG->{password},
+  );
+} else {
+  warn "Using access_token to do the login...\n";
+  %login_details = (
+    'user_id' => $CONFIG->{user_id}, 'access_token' => $CONFIG->{access_token},
+  );
+}
+$matrix->login(%login_details)->get;
 
 warn "Logged in; fetching room...\n";
 

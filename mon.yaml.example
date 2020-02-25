@@ -1,11 +1,15 @@
 # Probe user login details
-user_id:    "@matrixmon:domain.tld"
-password:   "verysecretpassword"
+user_id: "@matrixmon:domain.tld"
+
+# You can use either 'password' or 'access_token'
+password: "verysecretpassword"
+# access_token: "verysecrettoken"
+
 homeserver: "domain.tld"
 # Set this to 1 to use HTTPS connections, to 0 to use HTTP connections
 ssl: 1
 
-room_id:    "!qwerty:domain.tld"
+room_id: "!qwerty:domain.tld"
 
 # Serve /metrics on this port
 metrics_port: "9091"
