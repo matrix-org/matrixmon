@@ -128,7 +128,7 @@ warn "Listening for metrics on http://[::0]:" . $server->read_handle->sockport .
 warn "Logging in to $CONFIG->{homeserver} as $CONFIG->{user_id}...\n";
 
 my %login_details;
-if ($CONFIG->{password}) {
+if (defined $CONFIG->{password}) {
   warn "Using password to do the login...\n";
   %login_details = (
     'user_id' => $CONFIG->{user_id}, 'password' => $CONFIG->{password},
