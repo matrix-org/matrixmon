@@ -149,7 +149,7 @@ my $room = $matrix->start
 
 warn "Got room\n";
 
-my $next_txn_id;
+my $next_txn_id = time();
 
 my %txns;
 
