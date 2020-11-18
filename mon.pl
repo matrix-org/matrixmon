@@ -166,7 +166,7 @@ $room->configure(
 
 sub ping
 {
-   my $txn_id = $next_txn_id++;
+   my $txn_id = 'm' . $next_txn_id++;
 
    my $txn = $txns{$txn_id} = Txn(
       my $recv_f = Future->new,
