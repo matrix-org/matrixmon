@@ -9,7 +9,7 @@ on:
 
 env:
   DOCKER_NAMESPACE: ghcr.io
-  PLATFORMS: linux/amd64,linux/arm64v8
+  PLATFORMS: linux/amd64,linux/arm64
   # Only push if this is develop, otherwise we just want to build
   # On a PR github.ref is the target branch, so don't push for that either
   PUSH: ${{ github.ref == 'refs/heads/master' && github.event_name != 'pull_request' }}

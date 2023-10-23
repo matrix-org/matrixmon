@@ -8,7 +8,7 @@ on:
 
 env:
   DOCKER_NAMESPACE: ghcr.io
-  PLATFORMS: linux/amd64,linux/arm64v8
+  PLATFORMS: linux/amd64,linux/arm64
 
 jobs:
   docker-release:
@@ -39,4 +39,4 @@ jobs:
           platforms: ${{ env.PLATFORMS }}
           push: true
           tags: |
-            ${{ env.DOCKER_NAMESPACE }}/matrixmon:${{ env.RELEASE_VERSION }}
+            ${{ env.DOCKER_NAMESPACE }}/matrix-org/matrixmon:${{ env.RELEASE_VERSION }}
