@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM perl:5
+FROM perl:5
 
 RUN apt update && apt install -y build-essential libssl-dev zlib1g-dev openssl
 
